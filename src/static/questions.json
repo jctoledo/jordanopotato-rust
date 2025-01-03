@@ -1,0 +1,142 @@
+{
+  "generalInstructions": [
+    {
+      "id": "G1",
+      "title": "General Instructions (Part 1)",
+      "content": "This Future Authoring exercise is split into two stages, each requiring focus and honest reflection. You may complete Stage 1 on one day and Stage 2 on another, allowing yourself time to think and rest between sessions. Write down your thoughts directly into each prompt and save your work as you go.",
+      "pointerNext": "G2"
+    },
+    {
+      "id": "G2",
+      "title": "General Instructions (Part 2)",
+      "content": "Proceed through screens using Next/Previous. Your text saves automatically when navigating, but you can also click Save. You may exit anytime; when you resume, you’ll return to where you left off. Avoid HTML-like tags (e.g., <div>) in your responses. Keep writing steadily during timed sections, and revise later if needed.",
+      "pointerNext": "G3"
+    },
+    {
+      "id": "G3",
+      "title": "General Instructions (Part 3)",
+      "content": "Some prompts have minimum or maximum character requirements. Watch for character counters near each text box. Use the Index to jump to completed pages, but remember to save first. After you finish the entire exercise, you’ll see a Summary page where you can email yourself a copy.",
+      "pointerNext": "Stage1"
+    }
+  ],
+
+  "stage1": [
+    {
+      "id": "p1q1",
+      "title": "One Thing You Could Do Better",
+      "question": "Select one key personal improvement area. Why is this single change important for you to make? Write continuously for at least two minutes.",
+      "pointerNext": "p1q2"
+    },
+    {
+      "id": "p1q2",
+      "title": "Things to Learn About",
+      "question": "Identify topics or skills you want to explore over the next six months, two years, or five years. Consider why these areas matter to you.",
+      "pointerNext": "p1q3"
+    },
+    {
+      "id": "p1q3",
+      "title": "Improve Your Habits",
+      "question": "Reflect on habits you want to strengthen or change at school, work, or in your personal life. How could you improve your health or reduce harmful behaviors?",
+      "pointerNext": "p1q4"
+    },
+    {
+      "id": "p1q4",
+      "title": "Your Future Social Life",
+      "question": "Envision the friendships and connections you’d like to have. What positive influences and supportive relationships do you want around you?",
+      "pointerNext": "p1q5"
+    },
+    {
+      "id": "p1q5",
+      "title": "Your Future Leisure Activities",
+      "question": "Outline enjoyable, meaningful ways to spend your free time. How could you replace unproductive activities with more enriching pursuits?",
+      "pointerNext": "p1q6"
+    },
+    {
+      "id": "p1q6",
+      "title": "Your Future Family Life",
+      "question": "Visualize a peaceful, supportive home environment. Consider your relationships with parents, siblings, partner, or children. What do you want to improve?",
+      "pointerNext": "p1q7"
+    },
+    {
+      "id": "p1q7",
+      "title": "Your Future Career",
+      "question": "Imagine your career or academic goals in six months, two years, or five years. What motivates you, and where do you want these efforts to lead?",
+      "pointerNext": "p1q8"
+    },
+    {
+      "id": "p1q8",
+      "title": "Qualities You Admire",
+      "question": "Who are the two or three people you admire most, and what traits do they possess that you’d like to emulate?",
+      "pointerNext": "p1q9"
+    },
+    {
+      "id": "p1q9",
+      "title": "Ideal Future Summary",
+      "question": "Bring together all your ideas. Write for ~15 minutes about the future you desire: who you want to be, what you want to do, and why it’s important.",
+      "pointerNext": "p1q10"
+    },
+    {
+      "id": "p1q10",
+      "title": "A Future to Avoid",
+      "question": "Imagine the negative path—if you fail to pursue your goals, let weaknesses grow, or make harmful choices. Write ~15 minutes describing this undesirable future.",
+      "pointerNext": "Stage2"
+    }
+  ],
+
+  "stage2": [
+    {
+      "id": "p2q1",
+      "title": "Overall Future Goal Title",
+      "question": "Give your ideal future plan a clear title and short description. Summarize your ambitions or name them simply (e.g. 'My Ideal Future').",
+      "pointerNext": "p2q2"
+    },
+    {
+      "id": "p2q2",
+      "title": "Specifying and Clarifying Your Goals",
+      "question": "Break your ideal future into at least 6 (preferably 8) concise goals. Briefly describe each goal so it’s clear and memorable.",
+      "pointerNext": "p2q3"
+    },
+    {
+      "id": "p2q3",
+      "title": "Prioritizing Your Goals",
+      "question": "Rank your goals by importance (1 = most crucial). Which take priority, and why?",
+      "pointerNext": "p2q4a"
+    },
+    {
+      "id": "p2q4a",
+      "title": "Evaluating Your Motives",
+      "question": "Explain why each goal matters. Are you pursuing it for personal reasons, external pressure, or deeper values? How does it connect to your life dreams?",
+      "pointerNext": "p2q4b"
+    },
+    {
+      "id": "p2q4b",
+      "title": "Broad Personal and Social Impact",
+      "question": "Consider how success in this goal might affect your identity, relationships, and broader community. Note any fears (e.g., increased responsibility).",
+      "pointerNext": "p2q4c"
+    },
+    {
+      "id": "p2q4c",
+      "title": "Detailed Strategies for Attainment",
+      "question": "List the concrete, smaller steps you’ll take daily or weekly. Where, when, and how will you act on these sub-goals?",
+      "pointerNext": "p2q4d"
+    },
+    {
+      "id": "p2q4d",
+      "title": "Identifying Potential Obstacles",
+      "question": "What hurdles might arise? How could you self-sabotage or face resistance? Plan alternative approaches to overcome these threats.",
+      "pointerNext": "p2q4e"
+    },
+    {
+      "id": "p2q4e",
+      "title": "Monitoring Progress",
+      "question": "Define benchmarks and deadlines to assess your progress. How often will you check in? How will you know if you’re succeeding (or pushing too hard)?",
+      "pointerNext": "p2q5"
+    },
+    {
+      "id": "p2q5",
+      "title": "Future Steps",
+      "question": "Set aside brief periodic reviews (e.g., every two weeks) to evaluate your strategies. Over time, refine your goals as you learn more about what works best.",
+      "pointerNext": "Conclusion"
+    }
+  ]
+}

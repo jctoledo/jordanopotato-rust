@@ -1,0 +1,22 @@
+[package]
+name = "jordanopotato-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.6", features = ["macros"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres"] }
+dotenv = "0.15"
+tokio = { version = "1.28", features = ["macros", "rt-multi-thread"] }
+tower = "0.4"
+
+# The new library for calling OpenAI
+openai-rust = "1.5.2"
+# or whatever the latest version is
+
+# If you want streaming or other features, you may also need:
+futures-util = "0.3"
+anyhow = "1.0"
+tower-http = { version = "0.6.2", features = ["cors"] }

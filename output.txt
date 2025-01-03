@@ -1,0 +1,714 @@
+./src/main.rs
+use anyhow::Result;
+use dotenv::dotenv;
+use std::net::SocketAddr;
+
+use axum::Router;
+use jordanopotato_rust::{db, routes};
+use sqlx::{Pool, Postgres};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenv().ok();
+
+    // 1. Initialize DB
+    let pool: Pool<Postgres> = db::init_db_pool().await?;
+    db::run_migrations(&pool).await?;
+    println!("Database connected and migrations applied successfully!");
+
+    // 2. Build the Axum router
+    //    We merge the routes from our routes::create_router
+    let app: Router = routes::create_router(pool);
+
+    // 3. Run Axum
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    println!("Server listening on http://{}", addr);
+
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await?;
+
+    Ok(())
+}
+./src/db.rs
+use anyhow::Result;
+use dotenv::dotenv;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+use std::env;
+
+use crate::models::{Conversation, User};
+
+/// Initialize a connection pool for the Postgres DB.
+/// This function explicitly calls dotenv().ok() to load env vars from a .env file.
+/// Typically, you might call dotenv().ok() in main.rs instead for the entire application.
+pub async fn init_db_pool() -> Result<Pool<Postgres>> {
+    // Loads environment variables from a .env file
+    dotenv().ok();
+
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env or environment variables");
+
+    // Create a connection pool with some default settings:
+    let pool = PgPoolOptions::new()
+        .max_connections(5) // tune as needed
+        .connect(&database_url)
+        .await?;
+
+    Ok(pool)
+}
+
+/// Run migrations. In real usage, you might keep .sql files in a migrations folder
+/// and use sqlx's migrate capabilities. Or you can manually execute statements here.
+/// For demonstration, let's do a quick "if not exists" approach.
+pub async fn run_migrations(pool: &Pool<Postgres>) -> Result<()> {
+    let create_users_table = r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            prompt TEXT
+        );
+    "#;
+
+    let create_conversations_table = r#"
+        CREATE TABLE IF NOT EXISTS conversations (
+            user_id INTEGER PRIMARY KEY,
+            conversation_summary TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+    "#;
+
+    sqlx::query(create_users_table).execute(pool).await?;
+    sqlx::query(create_conversations_table)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Insert a new user into the DB, returning the created user
+pub async fn create_user(pool: &Pool<Postgres>, name: &str, prompt: &str) -> Result<User> {
+    let rec = sqlx::query_as::<_, User>(
+        r#"
+        INSERT INTO users (name, prompt)
+        VALUES ($1, $2)
+        RETURNING id, name, prompt
+        "#,
+    )
+    .bind(name)
+    .bind(prompt)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(rec)
+}
+
+/// Retrieve a user by their ID
+pub async fn get_user_by_id(pool: &Pool<Postgres>, user_id: i32) -> Result<Option<User>> {
+    let rec = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, name, prompt
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(rec)
+}
+
+/// Retrieve a user by name
+pub async fn get_user_by_name(pool: &Pool<Postgres>, name: &str) -> Result<Option<User>> {
+    let rec = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, name, prompt
+        FROM users
+        WHERE name = $1
+        "#,
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(rec)
+}
+
+pub async fn get_conversation_summary_by_user_id(
+    pool: &Pool<Postgres>,
+    user_id: i32,
+) -> Result<Option<Conversation>> {
+    let rec = sqlx::query_as::<_, Conversation>(
+        r#"
+        SELECT user_id, conversation_summary
+        FROM conversations
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(rec)
+}
+
+/// Update a user's prompt
+pub async fn update_user_prompt(
+    pool: &Pool<Postgres>,
+    user_id: i32,
+    new_prompt: &str,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE users
+        SET prompt = $1
+        WHERE id = $2
+        "#,
+    )
+    .bind(new_prompt)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(rows_affected.rows_affected() > 0)
+}
+
+/// Get or create user logic:
+pub async fn get_or_create_user(
+    pool: &Pool<Postgres>,
+    name: &str,
+    default_prompt: &str,
+) -> Result<User> {
+    if let Some(user) = get_user_by_name(pool, name).await? {
+        return Ok(user);
+    }
+    // If user not found, create new user
+    let new_user = create_user(pool, name, default_prompt).await?;
+    Ok(new_user)
+}
+
+/// Get conversation summary by user_id
+pub async fn get_conversation_summary(
+    pool: &Pool<Postgres>,
+    user_id: i32,
+) -> Result<Option<String>> {
+    let rec = sqlx::query_as::<_, (Option<String>,)>(
+        r#"
+        SELECT conversation_summary
+        FROM conversations
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    // rec is an Option<(Option<String>,)>; flatten the outer Option
+    Ok(rec.map(|tuple| tuple.0).flatten())
+}
+
+/// Update or insert (upsert) a conversation summary for a given user
+pub async fn update_conversation_summary(
+    pool: &Pool<Postgres>,
+    user_id: i32,
+    summary: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO conversations (user_id, conversation_summary)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id)
+        DO UPDATE SET conversation_summary = EXCLUDED.conversation_summary
+        "#,
+    )
+    .bind(user_id)
+    .bind(summary)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+./src/lib.rs
+pub mod db;
+pub mod models;
+pub mod routes;
+./src/models.rs
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+pub struct User {
+    pub id: i32,
+    pub name: String,
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+pub struct Conversation {
+    pub user_id: i32,
+    pub conversation_summary: Option<String>,
+}
+./src/routes.rs
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use dotenv::dotenv;
+use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
+use std::env;
+
+use crate::db;
+use crate::models::User;
+
+// -- openai_rust imports
+use openai_rust::{
+    chat::{ChatArguments, Message},
+    Client as OpenAIClient,
+};
+
+pub const OPENAI_MODEL_VERSION: &str = r#"gpt-4"#;
+
+pub const DEFAULT_PROMPT: &str = r#"The following is a structured and deep conversation between a human and an AI psychologist.
+The AI psychologist is empathetic, insightful, and uses ideas from Jordan Peterson's psychological frameworks and the Self-Authoring program.
+The AI's goal is to help the human achieve greater clarity, personal growth, and an understanding of their values, goals, and narratives.
+The AI provides specific exercises, asks thought-provoking questions, and gives practical advice where appropriate.
+If the AI does not have enough context to answer fully, it encourages further reflection or gathering more information.
+
+Guiding principles for the AI psychologist:
+1. **Empathy and Validation**: Acknowledge the emotional and psychological state of the human with warmth and understanding.
+2. **Narrative Focus**: Help the human identify and refine their personal narrative, connecting past, present, and future into a coherent story.
+3. **Goal Clarification**: Encourage the human to define and structure their goals in alignment with their values.
+4. **Cognitive Restructuring**: Gently challenge distorted thinking patterns and suggest healthier alternatives.
+5. **Practical Exercises**: Provide structured writing exercises, reflection prompts, or actionable steps inspired by the Self-Authoring program.
+6. **Accountability**: Motivate the human to take responsibility for their actions and their role in shaping their life.
+
+
+make sure to answer as if you were jordan peterson
+
+Conversation history (detailed):
+{history}
+Human: {input}
+AI Psychologist:
+"#;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: Pool<Postgres>,
+}
+
+// ----------------------
+// DTOs
+// ----------------------
+#[derive(Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+}
+
+#[derive(Serialize)]
+pub struct LoginResponse {
+    pub user_id: i32,
+    pub summary: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct PromptUpdateRequest {
+    pub new_prompt: String,
+}
+
+#[derive(Serialize)]
+pub struct SummaryResponse {
+    pub summary: String,
+}
+
+#[derive(Deserialize)]
+pub struct MessageRequest {
+    pub message: String,
+    pub user_id: i32,
+}
+
+#[derive(Serialize)]
+pub struct MessageResponse {
+    pub reply: String,
+    pub user_id: i32,
+}
+
+#[derive(Serialize)]
+struct UpdatePromptResponse {
+    prompt: String,
+}
+// ----------------------
+// Handlers
+// ----------------------
+
+#[axum::debug_handler]
+pub async fn login_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, StatusCode> {
+    let pool = &state.pool;
+
+    // 1) Create or retrieve user
+    let user = db::get_or_create_user(pool, &payload.username, DEFAULT_PROMPT)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 2) Grab existing summary
+    let summary = db::get_conversation_summary(pool, user.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(LoginResponse {
+        user_id: user.id,
+        summary,
+    }))
+}
+
+#[axum::debug_handler]
+pub async fn get_prompt_handler(
+    State(state): State<AppState>,
+    Path(user_id): Path<i32>,
+) -> Result<String, StatusCode> {
+    let pool = &state.pool;
+    let user = db::get_user_by_id(pool, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    match user {
+        Some(u) => Ok(u.prompt.unwrap_or_default()),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn update_prompt_handler(
+    State(state): State<AppState>,
+    Path(user_id): Path<i32>,
+    Json(payload): Json<PromptUpdateRequest>,
+) -> Result<Json<UpdatePromptResponse>, StatusCode> {
+    let pool = &state.pool;
+    let updated_ok = db::update_user_prompt(pool, user_id, &payload.new_prompt)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if updated_ok {
+        Ok(Json(UpdatePromptResponse {
+            prompt: payload.new_prompt,
+        }))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_summary_handler(
+    State(state): State<AppState>,
+    Path(user_id): Path<i32>,
+) -> Result<Json<SummaryResponse>, StatusCode> {
+    let pool = &state.pool;
+    let summary_opt = db::get_conversation_summary(pool, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    match summary_opt {
+        Some(summary) => Ok(Json(SummaryResponse { summary })),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+// ----------------------
+// Main chat logic
+// ----------------------
+#[axum::debug_handler]
+pub async fn chat_handler(
+    State(state): State<AppState>,
+    Json(req): Json<MessageRequest>,
+) -> Result<Json<MessageResponse>, StatusCode> {
+    let pool = &state.pool;
+
+    // 1) Ensure user exists
+    let user_opt = db::get_user_by_id(pool, req.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user = match user_opt {
+        Some(u) => u,
+        None => return Err(StatusCode::UNAUTHORIZED),
+    };
+
+    // 2) Current summary from DB (could be empty)
+    let existing_summary = db::get_conversation_summary(pool, user.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .unwrap_or_default();
+
+    // 3) Use user’s custom prompt or fallback
+    let user_prompt = user.prompt.as_deref().unwrap_or(DEFAULT_PROMPT);
+
+    // 4) Build the conversation text for the AI to respond to
+    let conversation_text = format!(
+        r#"{user_prompt}
+
+Conversation so far (summarized):
+{existing_summary}
+
+User's new message:
+"{user_message}"
+
+Assistant, please respond:
+"#,
+        user_prompt = user_prompt,
+        existing_summary = existing_summary,
+        user_message = req.message
+    );
+
+    // 5) Create the OpenAI client
+    dotenv().ok();
+    let api_key = env::var("MY_OPENAI_KEY").unwrap_or_default();
+    let client = OpenAIClient::new(&api_key);
+
+    // 6) Ask the AI for the "assistant" reply
+    //    We'll pass `conversation_text` as a "system" message,
+    //    plus we can add a user message if we want. But for brevity,
+    //    we can just do a single system message.
+    let chat_args = ChatArguments::new(
+        OPENAI_MODEL_VERSION,
+        vec![Message {
+            role: "system".to_owned(),
+            content: conversation_text,
+        }],
+    );
+
+    let res = client
+        .create_chat(chat_args)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // The assistant reply is typically in res.choices[0].message.content
+    let llm_reply = match res.choices.get(0) {
+        Some(choice) => choice.message.content.clone(),
+        None => "(No reply)".to_owned(),
+    };
+
+    // 7) Summarize the new exchange
+    let summarization_text = format!(
+        r#"
+Previous summary:
+{old_summary}
+
+User's latest message:
+"{user_message}"
+
+Assistant's reply:
+"{assistant_reply}"
+
+Please provide an updated very detailed summary of these contents. Enough for an expert to continue this discussion. no more than 20 sentences if needed:
+"#,
+        old_summary = existing_summary,
+        user_message = req.message,
+        assistant_reply = llm_reply
+    );
+
+    let summ_args = ChatArguments::new(
+        OPENAI_MODEL_VERSION,
+        vec![Message {
+            role: "system".to_owned(),
+            content: summarization_text,
+        }],
+    );
+
+    let summ_res = client
+        .create_chat(summ_args)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let new_summary = match summ_res.choices.get(0) {
+        Some(choice) => choice.message.content.clone(),
+        None => existing_summary, // fallback
+    };
+
+    // 8) Store updated summary in DB
+    db::update_conversation_summary(pool, user.id, &new_summary)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 9) Return the AI’s reply
+    Ok(Json(MessageResponse {
+        reply: llm_reply,
+        user_id: user.id,
+    }))
+}
+
+// ----------------------
+// Axum Router
+// ----------------------
+pub fn create_router(pool: Pool<Postgres>) -> Router {
+    let state = AppState { pool };
+
+    Router::new()
+        .route("/login", post(login_handler))
+        .route("/chat", post(chat_handler))
+        .route(
+            "/prompt/:user_id",
+            get(get_prompt_handler).post(update_prompt_handler),
+        )
+        .route("/summary/:user_id", get(get_summary_handler))
+        .with_state(state)
+}
+./tests/db_tests.rs
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use dotenv::dotenv;
+    use jordanopotato_rust::db;
+    use jordanopotato_rust::models;
+    use sqlx::PgPool;
+    use std::env;
+
+    // For integration tests, you'd typically import from crate root, so adjust accordingly.
+    // If you're writing tests in the same file as db.rs, you won't need the module dance.
+    async fn setup_test_db() -> PgPool {
+        dotenv().ok();
+        let database_url = env::var("TEST_DATABASE_URL").unwrap();
+        let pool = PgPool::connect(&database_url).await.unwrap();
+
+        sqlx::query("DROP TABLE IF EXISTS conversations CASCADE;")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DROP TABLE IF EXISTS users CASCADE;")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        db::run_migrations(&pool).await.unwrap();
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_create_and_get_user() {
+        dotenv().ok();
+        let pool = setup_test_db().await;
+        // 1) Create user
+        let user_name = "testuser";
+        let user_prompt = "Test Prompt";
+        let user = db::create_user(&pool, user_name, user_prompt)
+            .await
+            .unwrap();
+
+        assert_eq!(user.name, user_name);
+        assert_eq!(user.prompt.as_deref(), Some(user_prompt));
+
+        // 2) Get user by ID
+        let user_fetched = db::get_user_by_id(&pool, user.id).await.unwrap().unwrap();
+        assert_eq!(user_fetched.id, user.id);
+        assert_eq!(user_fetched.name, user_name);
+
+        // 3) Update user prompt
+        let new_prompt = "New Prompt from test!";
+        let updated_ok = db::update_user_prompt(&pool, user.id, new_prompt)
+            .await
+            .unwrap();
+        assert!(updated_ok);
+
+        let updated_user = db::get_user_by_id(&pool, user.id).await.unwrap().unwrap();
+        assert_eq!(updated_user.prompt.as_deref(), Some(new_prompt));
+    }
+
+    #[tokio::test]
+    async fn test_get_or_create_user() {
+        dotenv().ok();
+        let pool = setup_test_db().await;
+
+        let name = "maybe_exists_user";
+        let default_prompt = "Default prompt";
+
+        // If user doesn't exist, we create it
+        let user1 = db::get_or_create_user(&pool, name, default_prompt)
+            .await
+            .unwrap();
+        assert_eq!(user1.name, name);
+        // If we call it again, we get the same user
+        let user2 = db::get_or_create_user(&pool, name, default_prompt)
+            .await
+            .unwrap();
+        assert_eq!(user1.id, user2.id);
+    }
+
+    #[tokio::test]
+    async fn test_conversation_summary() {
+        dotenv().ok();
+        let pool = setup_test_db().await;
+
+        // create user
+        let user = db::create_user(&pool, "conv_user", "Some prompt")
+            .await
+            .unwrap();
+
+        // update summary
+        let summary_before = db::get_conversation_summary(&pool, user.id).await.unwrap();
+        assert_eq!(summary_before, None); // no summary yet
+
+        let new_summary = "This is a test conversation summary.";
+        db::update_conversation_summary(&pool, user.id, new_summary)
+            .await
+            .unwrap();
+
+        let summary_after = db::get_conversation_summary(&pool, user.id).await.unwrap();
+        assert_eq!(summary_after, Some(new_summary.to_string()));
+    }
+}
+./tests/server_tests.rs
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        Router,
+    };
+    use tower::ServiceExt; // for `oneshot` method
+
+    // We'll re-import or replicate the "create_app" logic from main
+    // so we can run tests. Alternatively, you can refactor your main
+    // to provide a function that returns Router.
+    fn create_app() -> Router {
+        Router::new()
+            .route(
+                "/",
+                axum::routing::get(|| async { "Hello from Rust + Axum!" }),
+            )
+            .route("/health", axum::routing::get(|| async { StatusCode::OK }))
+    }
+
+    #[tokio::test]
+    async fn test_root_endpoint() {
+        let app = create_app();
+
+        let request = Request::builder().uri("/").body(Body::empty()).unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        let body_str = std::str::from_utf8(&body_bytes).unwrap();
+
+        assert_eq!(body_str, "Hello from Rust + Axum!");
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint() {
+        let app = create_app();
+
+        let request = Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}
