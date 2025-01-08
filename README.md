@@ -1,6 +1,3 @@
-Below is a **README.md** that describes the current state of your Jordanopotato Rust project in detail. Feel free to adjust any sections as needed.
-
----
 
 # Jordanopotato Rust Project
 
